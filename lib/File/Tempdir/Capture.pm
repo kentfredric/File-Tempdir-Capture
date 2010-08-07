@@ -171,7 +171,7 @@ sub _params {
     if ( exists $plugin_cache->{$pluginname} ) {
       $module = $plugin_cache->{$pluginname};
     }
-    elsif ( $module =~ $hascolon and exists $plugin_cache->{ $prefix . $pluginname } ) {
+    elsif ( $pluginname =~ $hascolon and exists $plugin_cache->{ $prefix . $pluginname } ) {
       $module = $plugin_cache->{$pluginname} = $plugin_cache->{ $prefix . $pluginname };
     }
     else {
@@ -191,8 +191,7 @@ sub _params {
     if ( $module->DOES( $prefix . q[::] . $role ) ) {
       return $module;
     }
-    _error("Sorry, the module \"$module\" ( plugin \"$pluginname\" ) does not DO {$prefix}::{$role}");
-    return;
+    return _error("Sorry, the module \"$module\" ( plugin \"$pluginname\" ) does not DO {$prefix}::{$role}");
   }
 }
 ## use critic
