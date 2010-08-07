@@ -72,7 +72,7 @@ package File::Tempdir::Capture;
 This modules goal is to steal and re-centralise all the bits that make Dist::Zilla::Role::Tempdir function
 in a more re-usable way.
 
-When theivery is complete, this module permits one to do as following:
+When transition is complete, this module permits one to do as following:
 
 =over 4
 
@@ -90,6 +90,33 @@ When theivery is complete, this module permits one to do as following:
 
 =cut
 
+=head1 GENERAL FORM
+
+Many methods in this module have the general form:
+
+    $object->$method( @arglist , $confighash );
+
+The configuration hash is optional, and only needed if you want to do non-default things.
+
+This naturally expands to doing:
+
+    File::Tempdir::Capture::Plugin::{$default}->new({ %$confighash, capture => $object })->$method( @arglist );
+
+( with a bit of auto-load magic )
+
+You can override the default value for the plug-in using the 'with' key of the configuration hash, as follows:
+
+    $object->$method( @arglist, { with => $pluginname });
+
+Where C<< $pluginname >> can be as follows:
+
+    ::Foo::Bar  # leading :: indicates its a File::Tempdir::Capture::Plugin::
+    Baz::Quux   # literal package name
+
+Either should work the right way.
+
+=cut
+
 use Moose 1.09;
 
 has _file_stash => (
@@ -99,18 +126,19 @@ has _file_stash => (
   default  => sub { +{} },
   traits   => [qw( Hash )],
   handles  => {
-    set    => 'file_set',
-    get    => 'file_set',
-    delete => 'file_delete',
-    keys   => 'file_names',
-    exists => 'file_exists',
-  }
+    file_set    => 'set',
+    file_get    => 'set',
+    file_delete => 'delete',
+    file_names  => 'keys',
+    file_exists => 'exists',
+  },
 );
-
+## no critic ( Subroutines::RequireArgUnpacking )
 sub _error {
   require Carp;
   Carp::croak(@_);
 }
+## use critic
 
 sub _params {
   my ($args) = @_;
@@ -130,7 +158,8 @@ sub _params {
   sub _require_plugin {
     my ( $self, $config, $default, $role ) = @_;
     my ( $pluginname, $module );
-    my $prefix = 'File::Tempdir::Capture::Plugin';
+    my $prefix   = 'File::Tempdir::Capture::Plugin';
+    my $hascolon = qr/^::/msix;
 
     if ( not exists $config->{with} ) {
       $pluginname = $default;
@@ -142,56 +171,115 @@ sub _params {
     if ( exists $plugin_cache->{$pluginname} ) {
       $module = $plugin_cache->{$pluginname};
     }
-    elsif ( $module =~ m/^::/ and exists $plugin_cache{ $prefix . $pluginname } ) {
-      $module = $plugin_cache{$pluginname} = $plugin_cache{ $prefix . $pluginname };
+    elsif ( $module =~ $hascolon and exists $plugin_cache->{ $prefix . $pluginname } ) {
+      $module = $plugin_cache->{$pluginname} = $plugin_cache->{ $prefix . $pluginname };
     }
     else {
       $module = $pluginname;
-      $module = $prefix . $pluginname if $pluginname =~ m/^::/;
+      $module = $prefix . $pluginname if $pluginname =~ $hascolon;
 
       # STOLEN From perl5i::2::SCALAR->module2path
       # version 2.3.1 -- kentnl 2010-08-08
 
-      my @parts = split /::/, $module;
+      my @parts = split /::/msx, $module;
       my $file = join q{/}, @parts;
       $file .= '.pm';
       require $file;
       $plugin_cache->{$module}     = $module;
       $plugin_cache->{$pluginname} = $module;
     }
-    if ( $module->DOES( $prefix . '::' . $role ) ) {
+    if ( $module->DOES( $prefix . q[::] . $role ) ) {
       return $module;
     }
     _error("Sorry, the module \"$module\" ( plugin \"$pluginname\" ) does not DO {$prefix}::{$role}");
     return;
   }
 }
+## use critic
 
+=method add_file
+
+    $o->add_file( @args );
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::File->new({ capture => $o });
+    # $c->add_file( @args );
+    $o->add_file( @args, { with => '::FooBar' , param => 'Baz' });
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::FooBar->new(  { with => '::FooBar' , param => 'Baz' , capture => $o } );
+    # $c->add_file( @args );
+
+=cut
+
+## no critic ( Subroutines::RequireArgUnpacking )
 sub add_file {
   my ( $self, $config, @rest ) = _params( \@_ );
   my $module = $self->_require_plugin( $config, '::File', 'FileGenerator' );
-  $module->new( { %$config, capture => $self } )->add_file(@rest);
+  $module->new( +{ %{$config}, capture => $self } )->add_file(@rest);
 
   return $self;
 }
+
+=method adopt
+
+    $o->adopt_file( @args );
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::Dir->new({ capture => $o });
+    # $c->adopt( @args );
+    $o->adopt( @args, { with => '::FooBar' , param => 'Baz' });
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::FooBar->new(  { with => '::FooBar' , param => 'Baz' , capture => $o } );
+    # $c->adopt_file( @args );
+
+=cut
 
 sub adopt {
   my ( $self, $config, @rest ) = _params( \@_ );
   my $module = $self->_require_plugin( $config, '::Dir', 'StashAdopter' );
-  $module->new( { %$config, capture => $self } )->adopt(@rest);
+  $module->new( +{ %{$config}, capture => $self } )->adopt(@rest);
   return $self;
 }
+
+=method error_handler
+
+    $o->error_handler( @args );
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::CodeError->new({ capture => $o });
+    # $c->error_handler( @args );
+    $o->error_handler( @args, { with => '::FooBar' , param => 'Baz' });
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::FooBar->new(  { with => '::FooBar' , param => 'Baz' , capture => $o } );
+    # $c->error_handler( @args );
+
+=cut
 
 sub error_handler {
   my ( $self, $config, @rest ) = _params( \@_, );
   my $module = $self->_require_plugin( $config, '::CodeError', 'ErrorHandler' );
-  $module->new( { %$config, capture => $self } )->error_handler(@rest);
+  $module->new( +{ %{$config}, capture => $self } )->error_handler(@rest);
+  return $self;
 }
+
+=method inject
+
+    $o->inject( @args );
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::Dir->new({ capture => $o });
+    # $c->inject( @args );
+    $o->inject( @args, { with => '::FooBar' , param => 'Baz' });
+    # shorthand for
+    # my $c = File::Tempdir::Capture::Plugin::FooBar->new(  { with => '::FooBar' , param => 'Baz' , capture => $o } );
+    # $c->inject( @args );
+
+=cut
 
 sub inject {
   my ( $self, $config, @rest ) = _params( \@_, );
   my $module = $self->_require_plugin( $config, '::Dir', 'StashInjecter' );
-  $module->new( { %$config, capture => $self } )->inject(@rest);
+  $module->new( +{ %{$config}, capture => $self } )->inject(@rest);
+  return $self;
 }
+
+no Moose;
+__PACKAGE__->meta->make_immutable;
 
 1;
